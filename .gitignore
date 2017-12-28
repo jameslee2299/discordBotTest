@@ -2,5 +2,6 @@
 *.iml
 .settings
 **/keyChain.java
+**/keyChain.class
 .project
 .classpath
