@@ -98,19 +98,24 @@ public class App extends ListenerAdapter {
 
         // If user gives !profile command, grab all info and lay out in Discord's embed format using JDA methods
         if (userInputs[0].equals("!profile")) {
-            EmbedBuilder profileBox = new EmbedBuilder();
-            profileBox.setTitle("Here is a summary of your LoL stats:");
+            EmbedBuilder profileBox = new EmbedBuilder(); // Use JDA method to use EmbedBuilder
+            profileBox.setTitle("Here is a summary of your LoL stats:"); // Set Title of EmbedBuilder
 
-            StringBuilder championMasteryField = new StringBuilder();
+            StringBuilder championMasteryField = new StringBuilder(); // Initialize StringBuilder to save memory
 
             try {
-                Summoner summoner = getSummonerInfo(userInputs[1]);
-                profileBox.setAuthor("Profile: " + summoner.getName());
+                Summoner summoner = getSummonerInfo(userInputs[1]); // Get summoner info and place into object
+                profileBox.setAuthor("Profile: " + summoner.getName()); // Set top line to summoner name from object
 
+                // Get Mastery List and place into object
                 List<ChampionMastery> masteryList = getMasteryBySummonerId(summoner.getId());
+
+                // For loop 3 times for the top 3 champion mastery info
                 IntStream.range(0, 3).forEachOrdered(n -> {
                     try {
+                        // Set current champion to current position
                         ChampionMastery currentChampion = masteryList.get(n);
+                        // Build string
                         championMasteryField.append("[").append(currentChampion.getChampionLevel()).append("] ")
                                 .append(n+1).append(". ").append(getChampionData(currentChampion.getChampionId()).
                                 getName()).append(": ").append(currentChampion.getChampionPoints()).append("\n");
@@ -122,8 +127,10 @@ public class App extends ListenerAdapter {
                 System.err.println("Connection RiotAPIException: " + ex.getMessage());
             }
 
+            // Turn built string into an actual string and add to Field for Embed
             profileBox.addField("Top Champions:", championMasteryField.toString(), true);
 
+            // Build the Embed box and send message
             objChannel.sendMessage(profileBox.build()).queue();
             }
         }
