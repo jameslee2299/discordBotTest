@@ -32,6 +32,9 @@ public class App extends ListenerAdapter {
     // Key to be used across entire class
     public String riotApiKey = keyChain.getAPIKey();
 
+    ApiConfig config = new ApiConfig().setKey(riotApiKey);
+    RiotApi api = new RiotApi(config);
+
     // Build and initialize the JDA bot
     public static void main( String[] args ) throws LoginException, IllegalArgumentException, InterruptedException, RateLimitedException {
     	
@@ -58,12 +61,12 @@ public class App extends ListenerAdapter {
         // If user gives !summoner command, grab summoner info and send messages to channel with info
         if (userInputs[0].equals("!summoner")) {
             try {
-                Summoner userName = getSummonerInfo(userInputs[1]);
-                objChannel.sendMessage("Name: " + userName.getName()).queue();
-                objChannel.sendMessage("Summoner ID: " + Long.toString(userName.getId())).queue();
-                objChannel.sendMessage("Account ID: " + Long.toString(userName.getAccountId())).queue();
-                objChannel.sendMessage("Summoner Level: " + Long.toString(userName.getSummonerLevel())).queue();
-                objChannel.sendMessage("Profile Icon ID: " + Long.toString(userName.getProfileIconId())).queue();
+                Summoner summoner = getSummonerInfo(userInputs[1]);
+                objChannel.sendMessage("Name: " + summoner.getName()).queue();
+                objChannel.sendMessage("Summoner ID: " + Long.toString(summoner.getId())).queue();
+                objChannel.sendMessage("Account ID: " + Long.toString(summoner.getAccountId())).queue();
+                objChannel.sendMessage("Summoner Level: " + Long.toString(summoner.getSummonerLevel())).queue();
+                objChannel.sendMessage("Profile Icon ID: " + Long.toString(summoner.getProfileIconId())).queue();
             } catch (RiotApiException ex) {
                 System.err.println("Connection RiotAPIException: " + ex.getMessage());
             }
@@ -73,12 +76,17 @@ public class App extends ListenerAdapter {
         // champion mastery info (Riot automatically orders by descending)
         if (userInputs[0].equals("!mstats")) {
             try {
-                List<ChampionMastery> userName = getMasteryBySummonerName(userInputs[1]);
+                List<ChampionMastery> masteryList = getMasteryBySummonerName(userInputs[1]);
                 IntStream.range(0, 3).forEachOrdered(n -> {
-                    ChampionMastery currentChampion = userName.get(n);
+                    ChampionMastery currentChampion = masteryList.get(n);
                     objChannel.sendMessage("Rank: " + (n + 1)).queue();
-                    objChannel.sendMessage("Champion Name: " +
-                            getChampionData(currentChampion.getChampionId()).getName()).queue();
+                    try {
+                        objChannel.sendMessage("Champion Name: " +
+                                getChampionData(currentChampion.getChampionId()).getName()).queue();
+                    } catch (RiotApiException ex) {
+                        System.err.println("Connection RiotAPIException: " + ex.getMessage());
+                    }
+
                     objChannel.sendMessage("Mastery Level: " + currentChampion.getChampionLevel()).queue();
                     objChannel.sendMessage("Mastery Points: " + currentChampion.getChampionPoints()).queue();
                     //objChannel.sendMessage(" ").queue();
@@ -91,18 +99,24 @@ public class App extends ListenerAdapter {
         // If user gives !profile command, grab all info and lay out in Discord's embed format using JDA methods
         if (userInputs[0].equals("!profile")) {
             EmbedBuilder profileBox = new EmbedBuilder();
-            profileBox.setAuthor("Profile: " + userInputs[1]);
             profileBox.setTitle("Here is a summary of your LoL stats:");
 
             StringBuilder championMasteryField = new StringBuilder();
 
             try {
-                List<ChampionMastery> userName = getMasteryBySummonerName(userInputs[1]);
+                Summoner summoner = getSummonerInfo(userInputs[1]);
+                profileBox.setAuthor("Profile: " + summoner.getName());
+
+                List<ChampionMastery> masteryList = getMasteryBySummonerId(summoner.getId());
                 IntStream.range(0, 3).forEachOrdered(n -> {
-                    ChampionMastery currentChampion = userName.get(n);
-                    championMasteryField.append("[").append(currentChampion.getChampionLevel()).append("] ")
-                    .append(n+1).append(". ").append(getChampionData(currentChampion.getChampionId()).getName())
-                    .append(": ").append(currentChampion.getChampionPoints()).append("\n");
+                    try {
+                        ChampionMastery currentChampion = masteryList.get(n);
+                        championMasteryField.append("[").append(currentChampion.getChampionLevel()).append("] ")
+                                .append(n+1).append(". ").append(getChampionData(currentChampion.getChampionId()).
+                                getName()).append(": ").append(currentChampion.getChampionPoints()).append("\n");
+                    } catch (RiotApiException ex) {
+                        System.err.println("Connection RiotAPIException: " + ex.getMessage());
+                    }
                 });
             } catch (RiotApiException ex) {
                 System.err.println("Connection RiotAPIException: " + ex.getMessage());
@@ -116,45 +130,22 @@ public class App extends ListenerAdapter {
 
     // Get summoner info for a given summoner name
     private Summoner getSummonerInfo(String s) throws RiotApiException {
-        ApiConfig config = new ApiConfig().setKey(riotApiKey);
-        RiotApi api = new RiotApi(config);
-
         return api.getSummonerByName(Platform.NA,s);
-        //System.out.println("Name: " + summoner.getName());
-        //System.out.println("Summoner ID: " + summoner.getId());
-        //System.out.println("Account ID: " + summoner.getAccountId());
-        //System.out.println("Summoner Level: " + summoner.getSummonerLevel());
-        //System.out.println("Profile Icon ID: " + summoner.getProfileIconId());
-
     }
 
     // Get full list of champion mastery for a given summoner id
     private List<ChampionMastery> getMasteryBySummonerId(long l) throws RiotApiException {
-        ApiConfig config = new ApiConfig().setKey(riotApiKey);
-        RiotApi api = new RiotApi(config);
-
         return api.getChampionMasteriesBySummoner(Platform.NA,l);
     }
 
     // Get full list of champion mastery for a given summoner name
     private List<ChampionMastery> getMasteryBySummonerName(String s) throws RiotApiException {
-        ApiConfig config = new ApiConfig().setKey(riotApiKey);
-        RiotApi api = new RiotApi(config);
-
         return api.getChampionMasteriesBySummoner(Platform.NA,getSummonerInfo(s).getId());
     }
 
     // Get static champion data by champion ID - try/catch statement is inside method because why not
-    private Champion getChampionData(int n) {
-        try {
-            ApiConfig config = new ApiConfig().setKey(riotApiKey);
-            RiotApi api = new RiotApi(config);
-            return api.getDataChampion(Platform.NA,n);
-        }
-        catch (RiotApiException ex) {
-            System.err.println("Connection RiotAPIException: " + ex.getMessage());
-            return null;
-        }
+    private Champion getChampionData(int n) throws RiotApiException {
+        return api.getDataChampion(Platform.NA,n);
     }
 }
 ;
