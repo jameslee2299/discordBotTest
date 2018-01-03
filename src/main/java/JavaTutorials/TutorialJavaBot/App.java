@@ -23,6 +23,7 @@ import net.rithms.riot.api.ApiConfig;
 import net.rithms.riot.api.RiotApi;
 import net.rithms.riot.api.RiotApiException;
 import net.rithms.riot.api.endpoints.static_data.dto.Champion;
+import net.rithms.riot.api.endpoints.static_data.dto.ChampionList;
 import net.rithms.riot.api.endpoints.summoner.dto.Summoner;
 import net.rithms.riot.api.endpoints.champion_mastery.dto.ChampionMastery;
 import net.rithms.riot.constant.Platform;
@@ -153,6 +154,10 @@ public class App extends ListenerAdapter {
     // Get static champion data by champion ID - try/catch statement is inside method because why not
     private Champion getChampionData(int n) throws RiotApiException {
         return api.getDataChampion(Platform.NA,n);
+    }
+
+    private ChampionList getChampionList() throws RiotApiException {
+        return api.getDataChampionList(Platform.NA);
     }
 }
 ;
