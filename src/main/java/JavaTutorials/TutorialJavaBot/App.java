@@ -22,6 +22,7 @@ import net.dv8tion.jda.core.hooks.ListenerAdapter;
 import net.rithms.riot.api.ApiConfig;
 import net.rithms.riot.api.RiotApi;
 import net.rithms.riot.api.RiotApiException;
+import net.rithms.riot.api.endpoints.static_data.constant.Locale;
 import net.rithms.riot.api.endpoints.static_data.dto.Champion;
 import net.rithms.riot.api.endpoints.static_data.dto.ChampionList;
 import net.rithms.riot.api.endpoints.summoner.dto.Summoner;
@@ -78,9 +79,9 @@ public class App extends ListenerAdapter {
         if (userInputs[0].equals("!mstats")) {
             try {
                 List<ChampionMastery> masteryList = getMasteryBySummonerName(userInputs[1]);
-                IntStream.range(0, 3).forEachOrdered(n -> {
-                    ChampionMastery currentChampion = masteryList.get(n);
-                    objChannel.sendMessage("Rank: " + (n + 1)).queue();
+                for (int i = 0; i < 3; i++) {
+                    ChampionMastery currentChampion = masteryList.get(i);
+                    objChannel.sendMessage("Rank: " + (i + 1)).queue();
                     try {
                         objChannel.sendMessage("Champion Name: " +
                                 getChampionData(currentChampion.getChampionId()).getName()).queue();
@@ -91,7 +92,7 @@ public class App extends ListenerAdapter {
                     objChannel.sendMessage("Mastery Level: " + currentChampion.getChampionLevel()).queue();
                     objChannel.sendMessage("Mastery Points: " + currentChampion.getChampionPoints()).queue();
                     //objChannel.sendMessage(" ").queue();
-                });
+                }
             } catch (RiotApiException ex) {
                 System.err.println("Connection RiotAPIException: " + ex.getMessage());
             }
@@ -112,18 +113,18 @@ public class App extends ListenerAdapter {
                 List<ChampionMastery> masteryList = getMasteryBySummonerId(summoner.getId());
 
                 // For loop 3 times for the top 3 champion mastery info
-                IntStream.range(0, 3).forEachOrdered(n -> {
+                for (int i = 0; i < 3; i++) {
                     try {
                         // Set current champion to current position
-                        ChampionMastery currentChampion = masteryList.get(n);
+                        ChampionMastery currentChampion = masteryList.get(i);
                         // Build string
                         championMasteryField.append("[").append(currentChampion.getChampionLevel()).append("] ")
-                                .append(n+1).append(". ").append(getChampionData(currentChampion.getChampionId()).
+                                .append(i + 1).append(". ").append(getChampionData(currentChampion.getChampionId()).
                                 getName()).append(": ").append(currentChampion.getChampionPoints()).append("\n");
                     } catch (RiotApiException ex) {
                         System.err.println("Connection RiotAPIException: " + ex.getMessage());
                     }
-                });
+                }
             } catch (RiotApiException ex) {
                 System.err.println("Connection RiotAPIException: " + ex.getMessage());
             }
@@ -133,8 +134,18 @@ public class App extends ListenerAdapter {
 
             // Build the Embed box and send message
             objChannel.sendMessage(profileBox.build()).queue();
+        }
+
+        if (userInputs[0].equals("!testing")) {
+            try {
+                ChampionList champList = getChampionList();
+                System.out.println(champList.toString());
+            }
+            catch (RiotApiException ex) {
+                System.err.println("Connection RiotAPIException: " + ex.getMessage());
             }
         }
+    }
 
     // Get summoner info for a given summoner name
     private Summoner getSummonerInfo(String s) throws RiotApiException {
@@ -157,7 +168,7 @@ public class App extends ListenerAdapter {
     }
 
     private ChampionList getChampionList() throws RiotApiException {
-        return api.getDataChampionList(Platform.NA);
+        return api.getDataChampionList(Platform.NA, Locale.EN_US,null,true);
     }
 }
 ;
