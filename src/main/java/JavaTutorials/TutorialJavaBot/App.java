@@ -105,33 +105,60 @@ public class App extends ListenerAdapter {
 
         // If user gives !profile command, grab all info and lay out in Discord's embed format using JDA methods
         if (userInputs[0].equals("!profile")) {
+
             EmbedBuilder profileBox = new EmbedBuilder(); // Use JDA method to use EmbedBuilder
             profileBox.setTitle("Here is a summary of your LoL stats:"); // Set Title of EmbedBuilder
 
             StringBuilder championMasteryField = new StringBuilder(); // Initialize StringBuilder to save memory
 
+            Summoner summoner = null;
             try {
-                Summoner summoner = getSummonerInfo(userInputs[1]); // Get summoner info and place into object
-                profileBox.setAuthor("Profile: " + summoner.getName()); // Set top line to summoner name from object
+                summoner = getSummonerInfo(userInputs[1]); // Get summoner info and place into object
+            } catch (RiotApiException ex) {
+                System.err.println("Riot API Exception: " + ex.getMessage());
+            }
+
+            profileBox.setAuthor("Profile: " + summoner.getName()); // Set top line to summoner name from object
 
                 // Get Mastery List and place into object
-                List<ChampionMastery> masteryList = getMasteryBySummonerId(summoner.getId());
-
-                // For loop 3 times for the top 3 champion mastery info
-                for (int i = 0; i < 3; i++) {
-                    try {
-                        // Set current champion to current position
-                        ChampionMastery currentChampion = masteryList.get(i);
-                        // Build string
-                        championMasteryField.append("[").append(currentChampion.getChampionLevel()).append("] ")
-                                .append(i + 1).append(". ").append(getChampionData(currentChampion.getChampionId()).
-                                getName()).append(": ").append(currentChampion.getChampionPoints()).append("\n");
-                    } catch (RiotApiException ex) {
-                        System.err.println("Connection RiotAPIException: " + ex.getMessage());
-                    }
-                }
+            List<ChampionMastery> masteryList = null;
+            try {
+                masteryList = getMasteryBySummonerId(summoner.getId());
             } catch (RiotApiException ex) {
-                System.err.println("Connection RiotAPIException: " + ex.getMessage());
+                System.err.println("Riot API Exception: " + ex.getMessage());
+            }
+
+            // Connect to db and build string
+            Connection conn = null;
+            String queryString = null;
+            PreparedStatement queryChamp = null;
+
+            try {
+                conn = dbConnect("champ_list_test.db");
+                queryString = "SELECT champ_name FROM champlist WHERE champ_id = ?";
+                queryChamp = conn.prepareStatement(queryString);
+            } catch (SQLException s) {
+                System.err.println("SQL Exception: " + s);
+            }
+
+            // For loop 3 times for the top 3 champion mastery info
+            for (int i = 0; i < 3; i++) {
+                // Set current champion to current position
+                ChampionMastery currentChampion = masteryList.get(i);
+                String champName = null;
+                try {
+                    queryChamp.setInt(1, currentChampion.getChampionId());
+
+                    ResultSet rs = queryChamp.executeQuery();
+                    rs.next();
+                    champName = rs.getString(1);
+                } catch (SQLException s) {
+                    System.err.println("SQL Exception: " + s.getMessage());
+                }
+                // Build string
+                championMasteryField.append("[").append(currentChampion.getChampionLevel()).append("] ")
+                        .append(i + 1).append(". ").append(champName).append(": ")
+                        .append(currentChampion.getChampionPoints()).append("\n");
             }
 
             // Turn built string into an actual string and add to Field for Embed
@@ -225,7 +252,7 @@ public class App extends ListenerAdapter {
         return api.getChampionMasteriesBySummoner(Platform.NA,getSummonerInfo(s).getId());
     }
 
-    // Get static champion data by champion ID - try/catch statement is inside method because why not
+    // Get static champion data by champion ID
     public Champion getChampionData(int n) throws RiotApiException {
         return api.getDataChampion(Platform.NA,n);
     }
