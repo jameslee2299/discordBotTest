@@ -6,6 +6,7 @@ import JavaTutorials.TutorialJavaBot.keyChain;
 
 import javax.security.auth.login.LoginException;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.IntStream;
 
 import net.dv8tion.jda.core.AccountType;
@@ -29,6 +30,13 @@ import net.rithms.riot.api.endpoints.summoner.dto.Summoner;
 import net.rithms.riot.api.endpoints.champion_mastery.dto.ChampionMastery;
 import net.rithms.riot.constant.Platform;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+
+import org.sqlite.SQLiteDataSource;
+
 public class App extends ListenerAdapter {
 
     // Key to be used across entire class
@@ -42,8 +50,31 @@ public class App extends ListenerAdapter {
     	
     	JDA jdaBot = new JDABuilder(AccountType.BOT).setToken(keyChain.getBotToken()).buildBlocking();
     	jdaBot.addEventListener(new App());
-    	
+
+        SQLiteDataSource ds = new SQLiteDataSource();
+        ds.setDatabaseName("champ_db");
+
+    	try {
+    	    Connection conn = ds.getConnection();
+            System.out.println("Connection successful");
+            String sql = "CREATE TABLE IF NOT EXISTS champlist " +
+                    "(champ_id INTEGER PRIMARY KEY, champ_name text NOT NULL)";
+            Statement s = conn.createStatement();
+            s.executeUpdate(sql);
+
+            s.executeUpdate("INSERT INTO champlist (champ_id, champ_name) VALUES (89, 'Leona')");
+            ResultSet rs = s.executeQuery("SELECT * FROM champlist");
+            while (rs.next()) {
+                System.out.println(rs.getInt(1));
+                System.out.println(rs.getString(2));
+            }
+
+        } catch (SQLException ex) {
+    	    System.err.println("SQL Exception: " + ex.getMessage());
+        }
     }
+
+    int tempCounter = 1;
     
     @Override
     public void onMessageReceived(MessageReceivedEvent e) {
@@ -136,14 +167,21 @@ public class App extends ListenerAdapter {
             objChannel.sendMessage(profileBox.build()).queue();
         }
 
-        if (userInputs[0].equals("!testing")) {
+        if (userInputs[0].equals("!champlistdb") && tempCounter == 1) {
             try {
                 ChampionList champList = getChampionList();
-                System.out.println(champList.toString());
+                Map<String, Champion> map = champList.getData();
+                for (Map.Entry<String, Champion> entry : map.entrySet()) {
+                    Champion currentChamp = entry.getValue();
+                    int currentChampId = currentChamp.getId();
+                    String currentChampName = currentChamp.getName();
+                }
             }
             catch (RiotApiException ex) {
                 System.err.println("Connection RiotAPIException: " + ex.getMessage());
             }
+
+            tempCounter = 0;
         }
     }
 
