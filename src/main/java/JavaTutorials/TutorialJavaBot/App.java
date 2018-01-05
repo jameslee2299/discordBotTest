@@ -5,9 +5,9 @@ package JavaTutorials.TutorialJavaBot;
 import JavaTutorials.TutorialJavaBot.keyChain;
 
 import javax.security.auth.login.LoginException;
+import java.sql.*;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.IntStream;
 
 import net.dv8tion.jda.core.AccountType;
 import net.dv8tion.jda.core.EmbedBuilder;
@@ -30,11 +30,6 @@ import net.rithms.riot.api.endpoints.summoner.dto.Summoner;
 import net.rithms.riot.api.endpoints.champion_mastery.dto.ChampionMastery;
 import net.rithms.riot.constant.Platform;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-
 import org.sqlite.SQLiteDataSource;
 
 public class App extends ListenerAdapter {
@@ -47,31 +42,9 @@ public class App extends ListenerAdapter {
 
     // Build and initialize the JDA bot
     public static void main( String[] args ) throws LoginException, IllegalArgumentException, InterruptedException, RateLimitedException {
-    	
-    	JDA jdaBot = new JDABuilder(AccountType.BOT).setToken(keyChain.getBotToken()).buildBlocking();
-    	jdaBot.addEventListener(new App());
 
-        SQLiteDataSource ds = new SQLiteDataSource();
-        ds.setDatabaseName("champ_db");
-
-    	try {
-    	    Connection conn = ds.getConnection();
-            System.out.println("Connection successful");
-            String sql = "CREATE TABLE IF NOT EXISTS champlist " +
-                    "(champ_id INTEGER PRIMARY KEY, champ_name text NOT NULL)";
-            Statement s = conn.createStatement();
-            s.executeUpdate(sql);
-
-            s.executeUpdate("INSERT INTO champlist (champ_id, champ_name) VALUES (89, 'Leona')");
-            ResultSet rs = s.executeQuery("SELECT * FROM champlist");
-            while (rs.next()) {
-                System.out.println(rs.getInt(1));
-                System.out.println(rs.getString(2));
-            }
-
-        } catch (SQLException ex) {
-    	    System.err.println("SQL Exception: " + ex.getMessage());
-        }
+        JDA jdaBot = new JDABuilder(AccountType.BOT).setToken(keyChain.getBotToken()).buildBlocking();
+        jdaBot.addEventListener(new App());
     }
 
     int tempCounter = 1;
@@ -90,6 +63,7 @@ public class App extends ListenerAdapter {
     	//System.out.println(objMsg.getContentDisplay());
     	//System.out.println(userInputs[0]);
         //System.out.println(userInputs[1]);
+
 
         // If user gives !summoner command, grab summoner info and send messages to channel with info
         if (userInputs[0].equals("!summoner")) {
@@ -171,10 +145,37 @@ public class App extends ListenerAdapter {
             try {
                 ChampionList champList = getChampionList();
                 Map<String, Champion> map = champList.getData();
-                for (Map.Entry<String, Champion> entry : map.entrySet()) {
-                    Champion currentChamp = entry.getValue();
-                    int currentChampId = currentChamp.getId();
-                    String currentChampName = currentChamp.getName();
+                try {
+                    Connection conn = dbConnect("champ_list_test.db");
+
+                    String sql = "CREATE TABLE IF NOT EXISTS champlist " +
+                            "(champ_id INTEGER PRIMARY KEY, champ_name text NOT NULL)";
+                    Statement s = conn.createStatement();
+                    s.executeUpdate(sql);
+
+                    PreparedStatement updateTable = null;
+
+                    String updateString = "INSERT OR IGNORE INTO champlist (champ_id, champ_name) VALUES " +
+                            "(?, ?)";
+
+                    updateTable = conn.prepareStatement(updateString);
+
+                    for (Map.Entry<String, Champion> entry : map.entrySet()) {
+                        Champion currentChamp = entry.getValue();
+                        int currentChampId = currentChamp.getId();
+                        String currentChampName = currentChamp.getName();
+                        updateTable.setInt(1, currentChampId);
+                        updateTable.setString(2, currentChampName);
+                        updateTable.executeUpdate();
+                    }
+
+                    ResultSet rs = s.executeQuery("SELECT * FROM champlist");
+                    while (rs.next()) {
+                        System.out.println(rs.getInt(1));
+                        System.out.println(rs.getString(2));
+                    }
+                } catch (SQLException s) {
+                    System.err.println("SQL Exception: " + s.getMessage());
                 }
             }
             catch (RiotApiException ex) {
@@ -183,30 +184,62 @@ public class App extends ListenerAdapter {
 
             tempCounter = 0;
         }
+
+        if (userInputs[0].equals("!printchamp")) {
+            int champId = Integer.parseInt(userInputs[1]);
+            try {
+                Connection conn = dbConnect("champ_list_test.db");
+                PreparedStatement queryChamp = null;
+                String queryString = "SELECT * FROM champlist WHERE champ_id = ?";
+
+                queryChamp = conn.prepareStatement(queryString);
+
+                queryChamp.setInt(1, champId);
+                ResultSet rs = queryChamp.executeQuery();
+                if (!rs.isBeforeFirst()) {
+                    objChannel.sendMessage("No champion with that ID").queue();
+                }
+                else {
+                    while (rs.next()) {
+                        objChannel.sendMessage("Name: " + rs.getString(2)).queue();
+                    }
+                }
+            } catch (SQLException s) {
+                System.err.println("SQL Exception: " + s.getMessage());
+            }
+        }
     }
 
     // Get summoner info for a given summoner name
-    private Summoner getSummonerInfo(String s) throws RiotApiException {
+    public Summoner getSummonerInfo(String s) throws RiotApiException {
         return api.getSummonerByName(Platform.NA,s);
     }
 
     // Get full list of champion mastery for a given summoner id
-    private List<ChampionMastery> getMasteryBySummonerId(long l) throws RiotApiException {
+    public List<ChampionMastery> getMasteryBySummonerId(long l) throws RiotApiException {
         return api.getChampionMasteriesBySummoner(Platform.NA,l);
     }
 
     // Get full list of champion mastery for a given summoner name
-    private List<ChampionMastery> getMasteryBySummonerName(String s) throws RiotApiException {
+    public List<ChampionMastery> getMasteryBySummonerName(String s) throws RiotApiException {
         return api.getChampionMasteriesBySummoner(Platform.NA,getSummonerInfo(s).getId());
     }
 
     // Get static champion data by champion ID - try/catch statement is inside method because why not
-    private Champion getChampionData(int n) throws RiotApiException {
+    public Champion getChampionData(int n) throws RiotApiException {
         return api.getDataChampion(Platform.NA,n);
     }
 
-    private ChampionList getChampionList() throws RiotApiException {
+    public ChampionList getChampionList() throws RiotApiException {
         return api.getDataChampionList(Platform.NA, Locale.EN_US,null,true);
     }
+
+    public Connection dbConnect(String dbName) throws SQLException {
+        SQLiteDataSource ds = new SQLiteDataSource();
+        ds.setUrl("jdbc:sqlite:" + dbName);
+        Connection conn = null;
+        conn = ds.getConnection();
+        System.out.println("Connection successful");
+        return conn;
+    }
 }
-;
