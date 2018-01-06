@@ -23,6 +23,8 @@ import net.dv8tion.jda.core.hooks.ListenerAdapter;
 import net.rithms.riot.api.ApiConfig;
 import net.rithms.riot.api.RiotApi;
 import net.rithms.riot.api.RiotApiException;
+import net.rithms.riot.api.endpoints.spectator.dto.CurrentGameInfo;
+import net.rithms.riot.api.endpoints.spectator.dto.CurrentGameParticipant;
 import net.rithms.riot.api.endpoints.static_data.constant.Locale;
 import net.rithms.riot.api.endpoints.static_data.dto.Champion;
 import net.rithms.riot.api.endpoints.static_data.dto.ChampionList;
@@ -118,24 +120,30 @@ public class App extends ListenerAdapter {
                 System.err.println("Riot API Exception: " + ex.getMessage());
             }
 
+            long summonerId = summoner.getId();
+
             profileBox.setAuthor("Profile: " + summoner.getName()); // Set top line to summoner name from object
 
                 // Get Mastery List and place into object
             List<ChampionMastery> masteryList = null;
             try {
-                masteryList = getMasteryBySummonerId(summoner.getId());
+                masteryList = getMasteryBySummonerId(summonerId);
             } catch (RiotApiException ex) {
                 System.err.println("Riot API Exception: " + ex.getMessage());
             }
 
             // Connect to db and build string
             Connection conn = null;
-            String queryString = null;
+            String queryString = "SELECT champ_name FROM champlist WHERE champ_id = ?";
             PreparedStatement queryChamp = null;
 
             try {
-                conn = dbConnect("champ_list_test.db");
-                queryString = "SELECT champ_name FROM champlist WHERE champ_id = ?";
+                conn = dbConnect("discord_bot.db");
+            } catch (SQLException s) {
+                System.err.println("SQL Exception: " + s);
+            }
+
+            try {
                 queryChamp = conn.prepareStatement(queryString);
             } catch (SQLException s) {
                 System.err.println("SQL Exception: " + s);
@@ -152,6 +160,7 @@ public class App extends ListenerAdapter {
                     ResultSet rs = queryChamp.executeQuery();
                     rs.next();
                     champName = rs.getString(1);
+                    rs.close();
                 } catch (SQLException s) {
                     System.err.println("SQL Exception: " + s.getMessage());
                 }
@@ -161,19 +170,94 @@ public class App extends ListenerAdapter {
                         .append(currentChampion.getChampionPoints()).append("\n");
             }
 
+            CurrentGameInfo liveGame = null;
+            String liveGameInfo = null;
+            try {
+                liveGame = getLiveGame(summonerId);
+            } catch (RiotApiException ex) {
+                System.err.println("Riot API Exception: " + ex.getMessage());
+            }
+
+            if (liveGame == null) {
+                liveGameInfo = "Not currently playing.";
+            }
+            else {
+                long timeInGame = liveGame.getGameLength();
+
+                ResultSet queueResults = null;
+                ResultSet champResults = null;
+
+                CurrentGameParticipant currentParticipant = liveGame.getParticipantByParticipantId(summonerId);
+
+                String liveChamp = null;
+                String queueType = null;
+                String mapType = null;
+
+                int liveQueueId = liveGame.getGameQueueConfigId();
+                int liveChampId = currentParticipant.getChampionId();
+
+                PreparedStatement queryGameType = null;
+                PreparedStatement queryChampion = null;
+
+                String liveQueueQuery = "SELECT * FROM queuetypes " +
+                        "WHERE id = ?";
+                String liveChampQuery = "SELECT champ_name FROM champlist " +
+                        "WHERE champ_id = ?";
+
+                try {
+
+//                    Statement s = conn.createStatement();
+
+                    queryGameType = conn.prepareStatement(liveQueueQuery);
+                    queryChampion = conn.prepareStatement(liveChampQuery);
+
+                    queryGameType.setInt(1, liveQueueId);
+                    queueResults = queryGameType.executeQuery();
+                    queueResults.next();
+                    queueType = queueResults.getString(3);
+                    mapType = queueResults.getString(2);
+
+                    queueResults.close();
+
+                    queryChampion.setInt(1, liveChampId);
+                    champResults = queryChampion.executeQuery();
+                    champResults.next();
+                    liveChamp = champResults.getString(1);
+
+                    champResults.close();
+
+//                    queueResults = s.executeQuery(liveQueueQuery);
+//                    champResults = s.executeQuery(liveChampQuery);
+
+                } catch (SQLException s) {
+                    System.err.println("SQL Exception: " + s.getMessage());
+                }
+
+                liveGameInfo = summoner.getName() + " is " + (timeInGame / 60 + 3) + ":" +
+                        String.format("%02d", (timeInGame % 60)) + " into a " + queueType + " game on " +
+                        mapType + " playing as " + liveChamp + ".";
+            }
+
+            // Level/Region, Region is hardcoded for now because ¯\_(ツ)_/¯
+            profileBox.addField("Level/Region:", summoner.getSummonerLevel() + " / NA", false);
+
             // Turn built string into an actual string and add to Field for Embed
             profileBox.addField("Top Champions:", championMasteryField.toString(), true);
+
+            // Live Game info
+            profileBox.addField("Live Game:", liveGameInfo, false);
 
             // Build the Embed box and send message
             objChannel.sendMessage(profileBox.build()).queue();
         }
 
+        // Fetch champlist, create db, and insert champ id with corresponding name
         if (userInputs[0].equals("!champlistdb") && tempCounter == 1) {
             try {
                 ChampionList champList = getChampionList();
                 Map<String, Champion> map = champList.getData();
                 try {
-                    Connection conn = dbConnect("champ_list_test.db");
+                    Connection conn = dbConnect("discord_bot.db");
 
                     String sql = "CREATE TABLE IF NOT EXISTS champlist " +
                             "(champ_id INTEGER PRIMARY KEY, champ_name text NOT NULL)";
@@ -215,7 +299,7 @@ public class App extends ListenerAdapter {
         if (userInputs[0].equals("!printchamp")) {
             int champId = Integer.parseInt(userInputs[1]);
             try {
-                Connection conn = dbConnect("champ_list_test.db");
+                Connection conn = dbConnect("discord_bot.db");
                 PreparedStatement queryChamp = null;
                 String queryString = "SELECT * FROM champlist WHERE champ_id = ?";
 
@@ -261,12 +345,16 @@ public class App extends ListenerAdapter {
         return api.getDataChampionList(Platform.NA, Locale.EN_US,null,true);
     }
 
+    public CurrentGameInfo getLiveGame(long summonerId) throws RiotApiException {
+        return api.getActiveGameBySummoner(Platform.NA, summonerId);
+    }
+
     public Connection dbConnect(String dbName) throws SQLException {
         SQLiteDataSource ds = new SQLiteDataSource();
         ds.setUrl("jdbc:sqlite:" + dbName);
-        Connection conn = null;
-        conn = ds.getConnection();
+        Connection connection = ds.getConnection();
         System.out.println("Connection successful");
-        return conn;
+
+        return connection;
     }
 }
