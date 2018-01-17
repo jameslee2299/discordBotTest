@@ -138,8 +138,6 @@ public class App extends ListenerAdapter {
                 System.err.println("Riot API Exception: " + ex.getMessage());
             }
 
-
-
             // Connect to db and build string
             Connection conn = null;
             String queryString = "SELECT champ_name FROM champlist WHERE champ_id = ?";
@@ -154,28 +152,19 @@ public class App extends ListenerAdapter {
             try {
                 queryChamp = conn.prepareStatement(queryString);
             } catch (SQLException s) {
-                System.err.println("SQL Exception: " + s);
+                if(s.getMessage().contains("SQL error or missing database")) {
+                    establishChamps();
+                    System.err.println("SQL champ list established. Please try again. ");
+                } else {
+                    System.err.println("SQL Exception: " + s);
+                }
             }
+
+            //getChampionMasteryInfo(masteryList);
 
             // For loop 3 times for the top 3 champion mastery info
             for (int i = 0; i < 3; i++) {
                 // Set current champion to current position
-                ChampionMastery currentChampion = masteryList.get(i);
-                String champName = null;
-                try {
-                    queryChamp.setInt(1, currentChampion.getChampionId());
-
-                    ResultSet rs = queryChamp.executeQuery();
-                    rs.next();
-                    champName = rs.getString(1);
-                    rs.close();
-                } catch (SQLException s) {
-                    System.err.println("SQL Exception: " + s.getMessage());
-                }
-                // Build string
-                championMasteryField.append("[").append(currentChampion.getChampionLevel()).append("] ")
-                        .append(i + 1).append(". ").append(champName).append(": ")
-                        .append(currentChampion.getChampionPoints()).append("\n");
             }
 
             CurrentGameInfo liveGame = null;
@@ -261,46 +250,7 @@ public class App extends ListenerAdapter {
 
         // Fetch champlist, create db, and insert champ id with corresponding name
         if (userInputs[0].equals("!champlistdb") && tempCounter == 1) {
-            try {
-                ChampionList champList = getChampionList();
-                Map<String, Champion> map = champList.getData();
-                try {
-                    Connection conn = dbConnect("discord_bot.db");
-
-                    String sql = "CREATE TABLE IF NOT EXISTS champlist " +
-                            "(champ_id INTEGER PRIMARY KEY, champ_name text NOT NULL)";
-                    Statement s = conn.createStatement();
-                    s.executeUpdate(sql);
-
-                    PreparedStatement updateTable = null;
-
-                    String updateString = "INSERT OR IGNORE INTO champlist (champ_id, champ_name) VALUES " +
-                            "(?, ?)";
-
-                    updateTable = conn.prepareStatement(updateString);
-
-                    for (Map.Entry<String, Champion> entry : map.entrySet()) {
-                        Champion currentChamp = entry.getValue();
-                        int currentChampId = currentChamp.getId();
-                        String currentChampName = currentChamp.getName();
-                        updateTable.setInt(1, currentChampId);
-                        updateTable.setString(2, currentChampName);
-                        updateTable.executeUpdate();
-                    }
-
-                    ResultSet rs = s.executeQuery("SELECT * FROM champlist");
-                    while (rs.next()) {
-                        System.out.println(rs.getInt(1));
-                        System.out.println(rs.getString(2));
-                    }
-                } catch (SQLException s) {
-                    System.err.println("SQL Exception: " + s.getMessage());
-                }
-            }
-            catch (RiotApiException ex) {
-                System.err.println("Connection RiotAPIException: " + ex.getMessage());
-            }
-
+            establishChamps();
             tempCounter = 0;
         }
 
@@ -355,6 +305,68 @@ public class App extends ListenerAdapter {
 
     public CurrentGameInfo getLiveGame(long summonerId) throws RiotApiException {
         return api.getActiveGameBySummoner(Platform.NA, summonerId);
+    }
+
+    private String formatChampionMasteryInfo(ChampionMastery currentChampion, PreparedStatement queryChamp, int i) {
+        String champName = null;
+        try {
+            queryChamp.setInt(1, currentChampion.getChampionId());
+
+            ResultSet rs = queryChamp.executeQuery();
+            rs.next();
+            champName = rs.getString(1);
+            rs.close();
+        } catch (SQLException s) {
+            System.err.println("SQL Exception: " + s.getMessage());
+        }
+        return "[" + currentChampion.getChampionLevel() + "] " + (i + 1) + ". " + champName + ": " + currentChampion.getChampionPoints() + "\n";
+        // Build string
+        /* championMasteryField.append("[").append(currentChampion.getChampionLevel()).append("] ")
+                .append(i + 1).append(". ").append(champName).append(": ")
+                .append(currentChampion.getChampionPoints()).append("\n");*/
+    }
+
+    private void establishChamps() {
+        try {
+            ChampionList champList = getChampionList();
+            Map<String, Champion> map = champList.getData();
+            try {
+                Connection conn = dbConnect("discord_bot.db");
+
+                String sql = "CREATE TABLE IF NOT EXISTS champlist " +
+                        "(champ_id INTEGER PRIMARY KEY, champ_name text NOT NULL)";
+                Statement s = conn.createStatement();
+                s.executeUpdate(sql);
+
+                PreparedStatement updateTable = null;
+
+                String updateString = "INSERT OR IGNORE INTO champlist (champ_id, champ_name) VALUES " +
+                        "(?, ?)";
+
+                updateTable = conn.prepareStatement(updateString);
+
+                for (Map.Entry<String, Champion> entry : map.entrySet()) {
+                    Champion currentChamp = entry.getValue();
+                    int currentChampId = currentChamp.getId();
+                    String currentChampName = currentChamp.getName();
+                    updateTable.setInt(1, currentChampId);
+                    updateTable.setString(2, currentChampName);
+                    updateTable.executeUpdate();
+                }
+
+                ResultSet rs = s.executeQuery("SELECT * FROM champlist");
+                while (rs.next()) {
+                    System.out.println(rs.getInt(1));
+                    System.out.println(rs.getString(2));
+                }
+            } catch (SQLException s) {
+                System.err.println("SQL Exception: " + s.getMessage());
+            }
+        }
+        catch (RiotApiException ex) {
+            System.err.println("Connection RiotAPIException: " + ex.getMessage());
+        }
+
     }
 
     public Connection dbConnect(String dbName) throws SQLException {
