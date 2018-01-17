@@ -165,6 +165,7 @@ public class App extends ListenerAdapter {
             // For loop 3 times for the top 3 champion mastery info
             for (int i = 0; i < 3; i++) {
                 // Set current champion to current position
+                championMasteryField.append(formatChampionMasteryInfo(masteryList.get(i), queryChamp, i));
             }
 
             CurrentGameInfo liveGame = null;
