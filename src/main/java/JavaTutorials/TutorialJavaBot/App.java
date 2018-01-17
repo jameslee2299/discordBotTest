@@ -26,6 +26,8 @@ import net.rithms.riot.api.RiotApiException;
 import net.rithms.riot.api.endpoints.spectator.dto.CurrentGameInfo;
 import net.rithms.riot.api.endpoints.spectator.dto.CurrentGameParticipant;
 import net.rithms.riot.api.endpoints.static_data.constant.Locale;
+import net.rithms.riot.api.endpoints.match.dto.MatchList;
+import net.rithms.riot.api.endpoints.match.dto.MatchReference;
 import net.rithms.riot.api.endpoints.static_data.dto.Champion;
 import net.rithms.riot.api.endpoints.static_data.dto.ChampionList;
 import net.rithms.riot.api.endpoints.summoner.dto.Summoner;
@@ -44,13 +46,12 @@ public class App extends ListenerAdapter {
 
     // Build and initialize the JDA bot
     public static void main( String[] args ) throws LoginException, IllegalArgumentException, InterruptedException, RateLimitedException {
-
         JDA jdaBot = new JDABuilder(AccountType.BOT).setToken(keyChain.getBotToken()).buildBlocking();
         jdaBot.addEventListener(new App());
     }
 
     int tempCounter = 1;
-    
+
     @Override
     public void onMessageReceived(MessageReceivedEvent e) {
 
@@ -68,9 +69,12 @@ public class App extends ListenerAdapter {
 
 
         // If user gives !summoner command, grab summoner info and send messages to channel with info
-        if (userInputs[0].equals("!summoner")) {
+        if (userInputs[0].equals("!summoner") && userInputs.length > 1) {
             try {
                 Summoner summoner = getSummonerInfo(userInputs[1]);
+                if(summoner == null) {
+                    return;
+                }
                 objChannel.sendMessage("Name: " + summoner.getName()).queue();
                 objChannel.sendMessage("Summoner ID: " + Long.toString(summoner.getId())).queue();
                 objChannel.sendMessage("Account ID: " + Long.toString(summoner.getAccountId())).queue();
@@ -83,7 +87,7 @@ public class App extends ListenerAdapter {
 
         // If user gives !mstats command, grab the List of champion mastery for the username and send the first three
         // champion mastery info (Riot automatically orders by descending)
-        if (userInputs[0].equals("!mstats")) {
+        if (userInputs[0].equals("!mstats") && userInputs.length > 1) {
             try {
                 List<ChampionMastery> masteryList = getMasteryBySummonerName(userInputs[1]);
                 for (int i = 0; i < 3; i++) {
@@ -106,7 +110,7 @@ public class App extends ListenerAdapter {
         }
 
         // If user gives !profile command, grab all info and lay out in Discord's embed format using JDA methods
-        if (userInputs[0].equals("!profile")) {
+        if (userInputs[0].equals("!profile") && userInputs.length > 1) {
 
             EmbedBuilder profileBox = new EmbedBuilder(); // Use JDA method to use EmbedBuilder
             profileBox.setTitle("Here is a summary of your LoL stats:"); // Set Title of EmbedBuilder
@@ -119,7 +123,9 @@ public class App extends ListenerAdapter {
             } catch (RiotApiException ex) {
                 System.err.println("Riot API Exception: " + ex.getMessage());
             }
-
+            if(summoner == null) {
+                return;
+            }
             long summonerId = summoner.getId();
 
             profileBox.setAuthor("Profile: " + summoner.getName()); // Set top line to summoner name from object
@@ -131,6 +137,8 @@ public class App extends ListenerAdapter {
             } catch (RiotApiException ex) {
                 System.err.println("Riot API Exception: " + ex.getMessage());
             }
+
+
 
             // Connect to db and build string
             Connection conn = null;
@@ -296,7 +304,7 @@ public class App extends ListenerAdapter {
             tempCounter = 0;
         }
 
-        if (userInputs[0].equals("!printchamp")) {
+        if (userInputs[0].equals("!printchamp") && userInputs.length > 1) {
             int champId = Integer.parseInt(userInputs[1]);
             try {
                 Connection conn = dbConnect("discord_bot.db");
