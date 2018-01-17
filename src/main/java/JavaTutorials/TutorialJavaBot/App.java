@@ -5,8 +5,9 @@ package JavaTutorials.TutorialJavaBot;
 import JavaTutorials.TutorialJavaBot.keyChain;
 
 import javax.security.auth.login.LoginException;
+import java.sql.*;
 import java.util.List;
-import java.util.stream.IntStream;
+import java.util.Map;
 
 import net.dv8tion.jda.core.AccountType;
 import net.dv8tion.jda.core.EmbedBuilder;
@@ -22,10 +23,16 @@ import net.dv8tion.jda.core.hooks.ListenerAdapter;
 import net.rithms.riot.api.ApiConfig;
 import net.rithms.riot.api.RiotApi;
 import net.rithms.riot.api.RiotApiException;
+import net.rithms.riot.api.endpoints.spectator.dto.CurrentGameInfo;
+import net.rithms.riot.api.endpoints.spectator.dto.CurrentGameParticipant;
+import net.rithms.riot.api.endpoints.static_data.constant.Locale;
 import net.rithms.riot.api.endpoints.static_data.dto.Champion;
+import net.rithms.riot.api.endpoints.static_data.dto.ChampionList;
 import net.rithms.riot.api.endpoints.summoner.dto.Summoner;
 import net.rithms.riot.api.endpoints.champion_mastery.dto.ChampionMastery;
 import net.rithms.riot.constant.Platform;
+
+import org.sqlite.SQLiteDataSource;
 
 public class App extends ListenerAdapter {
 
@@ -37,11 +44,12 @@ public class App extends ListenerAdapter {
 
     // Build and initialize the JDA bot
     public static void main( String[] args ) throws LoginException, IllegalArgumentException, InterruptedException, RateLimitedException {
-    	
-    	JDA jdaBot = new JDABuilder(AccountType.BOT).setToken(keyChain.getBotToken()).buildBlocking();
-    	jdaBot.addEventListener(new App());
-    	
+
+        JDA jdaBot = new JDABuilder(AccountType.BOT).setToken(keyChain.getBotToken()).buildBlocking();
+        jdaBot.addEventListener(new App());
     }
+
+    int tempCounter = 1;
     
     @Override
     public void onMessageReceived(MessageReceivedEvent e) {
@@ -57,6 +65,7 @@ public class App extends ListenerAdapter {
     	//System.out.println(objMsg.getContentDisplay());
     	//System.out.println(userInputs[0]);
         //System.out.println(userInputs[1]);
+
 
         // If user gives !summoner command, grab summoner info and send messages to channel with info
         if (userInputs[0].equals("!summoner")) {
@@ -77,9 +86,9 @@ public class App extends ListenerAdapter {
         if (userInputs[0].equals("!mstats")) {
             try {
                 List<ChampionMastery> masteryList = getMasteryBySummonerName(userInputs[1]);
-                IntStream.range(0, 3).forEachOrdered(n -> {
-                    ChampionMastery currentChampion = masteryList.get(n);
-                    objChannel.sendMessage("Rank: " + (n + 1)).queue();
+                for (int i = 0; i < 3; i++) {
+                    ChampionMastery currentChampion = masteryList.get(i);
+                    objChannel.sendMessage("Rank: " + (i + 1)).queue();
                     try {
                         objChannel.sendMessage("Champion Name: " +
                                 getChampionData(currentChampion.getChampionId()).getName()).queue();
@@ -90,7 +99,7 @@ public class App extends ListenerAdapter {
                     objChannel.sendMessage("Mastery Level: " + currentChampion.getChampionLevel()).queue();
                     objChannel.sendMessage("Mastery Points: " + currentChampion.getChampionPoints()).queue();
                     //objChannel.sendMessage(" ").queue();
-                });
+                }
             } catch (RiotApiException ex) {
                 System.err.println("Connection RiotAPIException: " + ex.getMessage());
             }
@@ -98,61 +107,254 @@ public class App extends ListenerAdapter {
 
         // If user gives !profile command, grab all info and lay out in Discord's embed format using JDA methods
         if (userInputs[0].equals("!profile")) {
+
             EmbedBuilder profileBox = new EmbedBuilder(); // Use JDA method to use EmbedBuilder
             profileBox.setTitle("Here is a summary of your LoL stats:"); // Set Title of EmbedBuilder
 
             StringBuilder championMasteryField = new StringBuilder(); // Initialize StringBuilder to save memory
 
+            Summoner summoner = null;
             try {
-                Summoner summoner = getSummonerInfo(userInputs[1]); // Get summoner info and place into object
-                profileBox.setAuthor("Profile: " + summoner.getName()); // Set top line to summoner name from object
+                summoner = getSummonerInfo(userInputs[1]); // Get summoner info and place into object
+            } catch (RiotApiException ex) {
+                System.err.println("Riot API Exception: " + ex.getMessage());
+            }
+
+            long summonerId = summoner.getId();
+
+            profileBox.setAuthor("Profile: " + summoner.getName()); // Set top line to summoner name from object
 
                 // Get Mastery List and place into object
-                List<ChampionMastery> masteryList = getMasteryBySummonerId(summoner.getId());
-
-                // For loop 3 times for the top 3 champion mastery info
-                IntStream.range(0, 3).forEachOrdered(n -> {
-                    try {
-                        // Set current champion to current position
-                        ChampionMastery currentChampion = masteryList.get(n);
-                        // Build string
-                        championMasteryField.append("[").append(currentChampion.getChampionLevel()).append("] ")
-                                .append(n+1).append(". ").append(getChampionData(currentChampion.getChampionId()).
-                                getName()).append(": ").append(currentChampion.getChampionPoints()).append("\n");
-                    } catch (RiotApiException ex) {
-                        System.err.println("Connection RiotAPIException: " + ex.getMessage());
-                    }
-                });
+            List<ChampionMastery> masteryList = null;
+            try {
+                masteryList = getMasteryBySummonerId(summonerId);
             } catch (RiotApiException ex) {
-                System.err.println("Connection RiotAPIException: " + ex.getMessage());
+                System.err.println("Riot API Exception: " + ex.getMessage());
             }
+
+            // Connect to db and build string
+            Connection conn = null;
+            String queryString = "SELECT champ_name FROM champlist WHERE champ_id = ?";
+            PreparedStatement queryChamp = null;
+
+            try {
+                conn = dbConnect("discord_bot.db");
+            } catch (SQLException s) {
+                System.err.println("SQL Exception: " + s);
+            }
+
+            try {
+                queryChamp = conn.prepareStatement(queryString);
+            } catch (SQLException s) {
+                System.err.println("SQL Exception: " + s);
+            }
+
+            // For loop 3 times for the top 3 champion mastery info
+            for (int i = 0; i < 3; i++) {
+                // Set current champion to current position
+                ChampionMastery currentChampion = masteryList.get(i);
+                String champName = null;
+                try {
+                    queryChamp.setInt(1, currentChampion.getChampionId());
+
+                    ResultSet rs = queryChamp.executeQuery();
+                    rs.next();
+                    champName = rs.getString(1);
+                    rs.close();
+                } catch (SQLException s) {
+                    System.err.println("SQL Exception: " + s.getMessage());
+                }
+                // Build string
+                championMasteryField.append("[").append(currentChampion.getChampionLevel()).append("] ")
+                        .append(i + 1).append(". ").append(champName).append(": ")
+                        .append(currentChampion.getChampionPoints()).append("\n");
+            }
+
+            CurrentGameInfo liveGame = null;
+            String liveGameInfo = null;
+            try {
+                liveGame = getLiveGame(summonerId);
+            } catch (RiotApiException ex) {
+                System.err.println("Riot API Exception: " + ex.getMessage());
+            }
+
+            if (liveGame == null) {
+                liveGameInfo = "Not currently playing.";
+            }
+            else {
+                long timeInGame = liveGame.getGameLength();
+
+                ResultSet queueResults = null;
+                ResultSet champResults = null;
+
+                CurrentGameParticipant currentParticipant = liveGame.getParticipantByParticipantId(summonerId);
+
+                String liveChamp = null;
+                String queueType = null;
+                String mapType = null;
+
+                int liveQueueId = liveGame.getGameQueueConfigId();
+                int liveChampId = currentParticipant.getChampionId();
+
+                PreparedStatement queryGameType = null;
+                PreparedStatement queryChampion = null;
+
+                String liveQueueQuery = "SELECT * FROM queuetypes " +
+                        "WHERE id = ?";
+                String liveChampQuery = "SELECT champ_name FROM champlist " +
+                        "WHERE champ_id = ?";
+
+                try {
+
+//                    Statement s = conn.createStatement();
+
+                    queryGameType = conn.prepareStatement(liveQueueQuery);
+                    queryChampion = conn.prepareStatement(liveChampQuery);
+
+                    queryGameType.setInt(1, liveQueueId);
+                    queueResults = queryGameType.executeQuery();
+                    queueResults.next();
+                    queueType = queueResults.getString(3);
+                    mapType = queueResults.getString(2);
+
+                    queueResults.close();
+
+                    queryChampion.setInt(1, liveChampId);
+                    champResults = queryChampion.executeQuery();
+                    champResults.next();
+                    liveChamp = champResults.getString(1);
+
+                    champResults.close();
+
+//                    queueResults = s.executeQuery(liveQueueQuery);
+//                    champResults = s.executeQuery(liveChampQuery);
+
+                } catch (SQLException s) {
+                    System.err.println("SQL Exception: " + s.getMessage());
+                }
+
+                liveGameInfo = summoner.getName() + " is " + (timeInGame / 60 + 3) + ":" +
+                        String.format("%02d", (timeInGame % 60)) + " into a " + queueType + " game on " +
+                        mapType + " playing as " + liveChamp + ".";
+            }
+
+            // Level/Region, Region is hardcoded for now because ¯\_(ツ)_/¯
+            profileBox.addField("Level/Region:", summoner.getSummonerLevel() + " / NA", false);
 
             // Turn built string into an actual string and add to Field for Embed
             profileBox.addField("Top Champions:", championMasteryField.toString(), true);
 
+            // Live Game info
+            profileBox.addField("Live Game:", liveGameInfo, false);
+
             // Build the Embed box and send message
             objChannel.sendMessage(profileBox.build()).queue();
-            }
         }
 
+        // Fetch champlist, create db, and insert champ id with corresponding name
+        if (userInputs[0].equals("!champlistdb") && tempCounter == 1) {
+            try {
+                ChampionList champList = getChampionList();
+                Map<String, Champion> map = champList.getData();
+                try {
+                    Connection conn = dbConnect("discord_bot.db");
+
+                    String sql = "CREATE TABLE IF NOT EXISTS champlist " +
+                            "(champ_id INTEGER PRIMARY KEY, champ_name text NOT NULL)";
+                    Statement s = conn.createStatement();
+                    s.executeUpdate(sql);
+
+                    PreparedStatement updateTable = null;
+
+                    String updateString = "INSERT OR IGNORE INTO champlist (champ_id, champ_name) VALUES " +
+                            "(?, ?)";
+
+                    updateTable = conn.prepareStatement(updateString);
+
+                    for (Map.Entry<String, Champion> entry : map.entrySet()) {
+                        Champion currentChamp = entry.getValue();
+                        int currentChampId = currentChamp.getId();
+                        String currentChampName = currentChamp.getName();
+                        updateTable.setInt(1, currentChampId);
+                        updateTable.setString(2, currentChampName);
+                        updateTable.executeUpdate();
+                    }
+
+                    ResultSet rs = s.executeQuery("SELECT * FROM champlist");
+                    while (rs.next()) {
+                        System.out.println(rs.getInt(1));
+                        System.out.println(rs.getString(2));
+                    }
+                } catch (SQLException s) {
+                    System.err.println("SQL Exception: " + s.getMessage());
+                }
+            }
+            catch (RiotApiException ex) {
+                System.err.println("Connection RiotAPIException: " + ex.getMessage());
+            }
+
+            tempCounter = 0;
+        }
+
+        if (userInputs[0].equals("!printchamp")) {
+            int champId = Integer.parseInt(userInputs[1]);
+            try {
+                Connection conn = dbConnect("discord_bot.db");
+                PreparedStatement queryChamp = null;
+                String queryString = "SELECT * FROM champlist WHERE champ_id = ?";
+
+                queryChamp = conn.prepareStatement(queryString);
+
+                queryChamp.setInt(1, champId);
+                ResultSet rs = queryChamp.executeQuery();
+                if (!rs.isBeforeFirst()) {
+                    objChannel.sendMessage("No champion with that ID").queue();
+                }
+                else {
+                    while (rs.next()) {
+                        objChannel.sendMessage("Name: " + rs.getString(2)).queue();
+                    }
+                }
+            } catch (SQLException s) {
+                System.err.println("SQL Exception: " + s.getMessage());
+            }
+        }
+    }
+
     // Get summoner info for a given summoner name
-    private Summoner getSummonerInfo(String s) throws RiotApiException {
+    public Summoner getSummonerInfo(String s) throws RiotApiException {
         return api.getSummonerByName(Platform.NA,s);
     }
 
     // Get full list of champion mastery for a given summoner id
-    private List<ChampionMastery> getMasteryBySummonerId(long l) throws RiotApiException {
+    public List<ChampionMastery> getMasteryBySummonerId(long l) throws RiotApiException {
         return api.getChampionMasteriesBySummoner(Platform.NA,l);
     }
 
     // Get full list of champion mastery for a given summoner name
-    private List<ChampionMastery> getMasteryBySummonerName(String s) throws RiotApiException {
+    public List<ChampionMastery> getMasteryBySummonerName(String s) throws RiotApiException {
         return api.getChampionMasteriesBySummoner(Platform.NA,getSummonerInfo(s).getId());
     }
 
-    // Get static champion data by champion ID - try/catch statement is inside method because why not
-    private Champion getChampionData(int n) throws RiotApiException {
+    // Get static champion data by champion ID
+    public Champion getChampionData(int n) throws RiotApiException {
         return api.getDataChampion(Platform.NA,n);
     }
+
+    public ChampionList getChampionList() throws RiotApiException {
+        return api.getDataChampionList(Platform.NA, Locale.EN_US,null,true);
+    }
+
+    public CurrentGameInfo getLiveGame(long summonerId) throws RiotApiException {
+        return api.getActiveGameBySummoner(Platform.NA, summonerId);
+    }
+
+    public Connection dbConnect(String dbName) throws SQLException {
+        SQLiteDataSource ds = new SQLiteDataSource();
+        ds.setUrl("jdbc:sqlite:" + dbName);
+        Connection connection = ds.getConnection();
+        System.out.println("Connection successful");
+
+        return connection;
+    }
 }
-;
